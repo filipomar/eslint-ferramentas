@@ -1,0 +1,8 @@
+.eslintrc.json
+coverage
+dist
+index.tsconfig.json
+package-lock.json
+package.json
+tsconfig.json
+types.tsconfig.json
