@@ -1,14 +1,17 @@
 {
     "name": "eslint-plugin-ferramentas",
-    "version": "1.0.1",
+    "version": "2.0.0",
     "description": "A bundle of useful ESLint rules",
     "main": "dist/index.js",
-    "types": "dist/types.d.ts",
+    "types": "dist/index.d.ts",
     "scripts": {
-        "test": "jest --no-cache --maxWorkers=2",
-        "build": "rm -rf dist/ && tsc --project types.tsconfig.json && tsc --project index.tsconfig.json",
+        "test": "tsc --noEmit && jest --no-cache --maxWorkers=2",
+        "generate:index": "ts-node src/scripts/generate-index.ts",
+        "generate:readme": "ts-node src/scripts/generate-readme.ts",
+        "generate:metadata": "ts-node src/scripts/generate-metadata.ts",
+        "build": "rm -rf dist/ && npm run generate:metadata && npm run generate:index && npm run generate:readme && tsc --project types.tsconfig.json && tsc --project index.tsconfig.json",
         "format": "prettier --config .prettierrc.json --write . && eslint --ext .json,.ts --fix .",
-        "audit": "npm run format && npm test && npm run build",
+        "audit": "npm test && npm run build && npm run format",
         "preversion": "npm run audit",
         "prepublishOnly": "npm run audit"
     },
@@ -38,17 +41,19 @@
         "@types/eslint": "^8.4.5",
         "@types/jest": "^28.1.4",
         "@types/node": "^18.0.0",
-        "@typescript-eslint/eslint-plugin": "^5.30.3",
-        "@typescript-eslint/parser": "^5.30.3",
-        "eslint-config-airbnb-base": "^15.0.0",
-        "eslint-plugin-import": "^2.26.0",
+        "@typescript-eslint/eslint-plugin": "^6.21.0",
+        "eslint-config-standard-with-typescript": "^43.0.1",
+        "eslint-plugin-import": "^2.32.0",
         "jest": "^28.1.2",
+        "json-schema": "^0.4.0",
         "prettier": "^2.7.1",
         "ts-jest": "^28.0.5",
+        "ts-json-schema-generator": "^2.4.0",
+        "ts-markdown-builder": "^0.5.0",
         "ts-node": "^10.8.1",
         "typescript": "^4.7.4"
     },
-    "dependencies": {
-        "eslint": "^8.19.0"
+    "peerDependencies": {
+        "eslint": "^8.47.0"
     }
 }
