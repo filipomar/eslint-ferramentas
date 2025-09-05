@@ -1,12 +1,5 @@
-.eslintignore
-.eslintrc.js
-.nvmrc
-.prettierrc.js
-.vscode
-buildtsconfig.json
+.*
+*.json
 coverage
-index.tsconfig.json
 jest.config.ts
-test
-tsconfig.json
-types.tsconfig.json
+src
