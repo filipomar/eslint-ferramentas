@@ -1,11 +1,17 @@
+import assert from 'assert';
 import { writeFileSync } from 'fs';
-import * as md from 'ts-markdown-builder';
 import * as ts from 'typescript';
+import * as md from 'ts-markdown-builder';
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error
+import eslintInterpolator from '../../node_modules/eslint/lib/linter/interpolate.js';
 import { name } from '../../package.json';
 import { rules } from '..';
 import { getRuleTestCases } from '../RulesTestCases';
 import { createConstStatement, printNodes, readRulesMetadata } from './utils';
+
+assert(typeof eslintInterpolator === 'function', 'Espected interpolator to be a function');
 
 const ruleEntries = Object.entries(rules);
 const { externalInputTypeName } = readRulesMetadata();
@@ -87,7 +93,20 @@ const content = md.joinBlocks([
         if (fixes) {
             ruleLines.push(md.code('🔧 Automatic fixes available'));
         }
-        ruleLines.push(...Array.from(new Set(firstInvalid.errors)).map((error) => md.blockquote(error)));
+        ruleLines.push(
+            ...Object.values(meta.messages).map((message) =>
+                md.blockquote(
+                    String(
+                        eslintInterpolator(message, {
+                            relativeFileName: './moo',
+                            pathFromWorkingDirectory: './foo/bar',
+                            rawPath: './foo',
+                            'aux.rawPath': './bar',
+                        }),
+                    ),
+                ),
+            ),
+        );
 
         /** Fixes */
         if (typeof firstInvalid.output === 'string') {
