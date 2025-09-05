@@ -1,14 +1,16 @@
+import { isPathRelative } from '../../utils';
 import { createRule } from '../Base';
 import { mapDebugRuleOptionInput } from '../Debug';
 import { mapDirectories, type Options, type OptionsInput } from './Input';
 import { name, schema } from './Metadata';
 
-const rule = createRule<OptionsInput, Options>(
+const rule = createRule<OptionsInput, Options, 'fobiddenImport'>(
     {
         name,
         type: 'problem',
         docs: { description: 'Prevents importing of files in specific folders from other specified locations of the codebase through regex.' },
         schema,
+        messages: { fobiddenImport: "Importing of '{{rawPath}}' is forbidden on '{{relativeFileName}}'" },
     },
     (input) => ({ ...mapDirectories(input), ...mapDebugRuleOptionInput(input) }),
     (context) => {
@@ -36,10 +38,17 @@ const rule = createRule<OptionsInput, Options>(
                 const declaration = context.getImportDeclaration(node);
                 context.debug('declaration', declaration);
 
+                const isRelative = isPathRelative(declaration.rawPath);
+                context.debug('isRelative', isRelative);
+                if (!isRelative) {
+                    return;
+                }
+
                 if (forbidden.some((forbid) => forbid.test(declaration.pathFromWorkingDirectory))) {
                     context.report({
-                        node,
-                        message: `Importing of '${declaration.rawPath}' is forbidden on '${relativeFileName}'`,
+                        loc: declaration.getLocation(false),
+                        messageId: 'fobiddenImport',
+                        data: { rawPath: declaration.rawPath, relativeFileName },
                     });
                 }
             },

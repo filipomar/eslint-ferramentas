@@ -84,7 +84,7 @@ const options = {
     sort: [
         {
             type: 'group',
-            groups: ['src/utils', 'src/domain'],
+            groups: ['src/utils', 'src/domain', 'src/react'],
         },
         {
             type: 'depth',
@@ -102,10 +102,10 @@ module.exports = { rules: { 'ferramentas/relative-import-order': ['error', optio
 
 `🔧 Automatic fixes available`
 
-> Imports from '../top-library' should be above the import from '../bottom-library'
-
-> The path 'non-listed/import-path' is not listed.
+> The path './foo/bar' is not listed.
 > All imported paths need to be included, either in the groups (so they are sorted) or ignored
+
+> Imports from './foo' should be above the import from './bar'
 
 #### Fixes
 
@@ -168,4 +168,4 @@ module.exports = { rules: { 'ferramentas/siloed-relative-import': ['error', opti
 
 #### Possible errors examples
 
-> Importing of '../some-other-folder' is forbidden on 'src/importing-folder/file.ts'
+> Importing of './foo' is forbidden on './moo'

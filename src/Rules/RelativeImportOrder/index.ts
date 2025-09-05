@@ -1,15 +1,24 @@
 import { sep } from 'path';
 import type { Rule } from 'eslint';
+import type { ImportDeclaration } from 'estree';
 
 import { isPathRelative, type Tupple } from '../../utils';
-import { createRule, ExtendedImportDeclaration } from '../Base';
+import { createRule, type ExtendedImportDeclaration } from '../Base';
 import { mapDebugRuleOptionInput } from '../Debug';
 import { mapSort, type Options, type OptionsInput, type SortOptionsInput, type SortOptionsInputType } from './Input';
 import { name, schema } from './Metadata';
 
+const messages = {
+    directoryNotImported: [
+        "The path '{{pathFromWorkingDirectory}}' is not listed.",
+        'All imported paths need to be included, either in the groups (so they are sorted) or ignored',
+    ].join('\n'),
+    shouldSwitch: "Imports from '{{rawPath}}' should be above the import from '{{aux.rawPath}}'",
+} as const;
+
 const mapTupple = <I, O>([a, b]: Tupple<I>, mapper: (input: I) => O): Tupple<O> => [mapper(a), mapper(b)];
 
-type ImportError = Pick<Rule.ReportDescriptor, 'fix'> & Readonly<{ message: string }>;
+type ImportError = Pick<Rule.ReportDescriptor, 'fix'> & Readonly<{ messageId: keyof typeof messages }>;
 
 const sorters: {
     [P in SortOptionsInputType]: (
@@ -39,15 +48,7 @@ const sorters: {
         }
 
         return [a, b].reduce(
-            (map, declaration) =>
-                declaration instanceof ExtendedImportDeclaration
-                    ? map.set(declaration, {
-                          message: [
-                              `The path '${declaration.pathFromWorkingDirectory}' is not listed.`,
-                              'All imported paths need to be included, either in the groups (so they are sorted) or ignored',
-                          ].join('\n'),
-                      })
-                    : map,
+            (map, declaration) => (declaration !== null && typeof declaration !== 'number' ? map.set(declaration, { messageId: 'directoryNotImported' }) : map),
             new Map<ExtendedImportDeclaration, ImportError>(),
         );
     },
@@ -61,7 +62,7 @@ const sorters: {
     },
 };
 
-const rule = createRule<OptionsInput, Options>(
+const rule = createRule<OptionsInput, Options, keyof typeof messages>(
     {
         name,
         type: 'layout',
@@ -74,64 +75,75 @@ const rule = createRule<OptionsInput, Options>(
             ].join('\n'),
         },
         schema,
+        messages,
     },
     (input) => ({ ...mapSort(input), ...mapDebugRuleOptionInput(input) }),
-    (context) => {
-        const allImports = context.getImportDeclarations();
-        context.debug('allImports', ...allImports);
+    (context) => ({
+        'ImportDeclaration + ImportDeclaration': (node: ImportDeclaration) => {
+            const declaration = context.getImportDeclaration(node);
+            context.debug('declaration', declaration);
 
-        const relativeImports = allImports.filter((node) => isPathRelative(node.rawPath));
-        context.debug('relativeImports', ...relativeImports);
+            const previous = declaration.getPreviousSiblingWithSameTypeOrThrow();
+            context.debug('previous', previous);
 
-        let errors = new Map<ExtendedImportDeclaration, ImportError>();
-        const sortedImports = [...relativeImports].sort((...declarations) => {
-            for (const sort of context.getOption('sort')) {
-                const sorter = sorters[sort.type];
-                const result = sorter(declarations, sort as never);
-
-                if (typeof result === 'number' && result !== 0) {
-                    return result;
-                }
-
-                if (result instanceof Map) {
-                    errors = new Map([...errors, ...result]);
-                }
+            const tuppleRelativeness = mapTupple([declaration, previous], (d) => isPathRelative(d.rawPath));
+            context.debug('tuppleRelativeness', ...tuppleRelativeness);
+            if (tuppleRelativeness.includes(false)) {
+                return;
             }
 
-            return 0;
-        });
-        context.debug('sortedImports', ...sortedImports);
+            let errors = new Map<ExtendedImportDeclaration, ImportError>();
+            const sortedImports = [previous, declaration].sort((...declarations) => {
+                for (const sort of context.getOption('sort')) {
+                    context.debug('sort.type', sort.type);
 
-        for (let position = 0; position < sortedImports.length; position++) {
-            const sortedImport = sortedImports[position];
-            const actualImport = relativeImports[position];
+                    const sorter = sorters[sort.type];
+                    const result = sorter(declarations, sort as never);
 
-            if (sortedImport !== actualImport) {
-                errors.set(sortedImport, {
-                    message: `Imports from '${sortedImport.rawPath}' should be above the import from '${actualImport.rawPath}'`,
+                    if (typeof result === 'number' && result !== 0) {
+                        context.debug('sort.result', result);
+                        return result;
+                    }
+
+                    if (result instanceof Map) {
+                        context.debug('sort.error', ...result.keys());
+                        errors = new Map([...errors, ...result]);
+                    }
+                }
+
+                return 0;
+            });
+
+            context.debug('errors', ...errors.keys());
+
+            const isSorted = sortedImports[0] === previous;
+            context.debug('isSorted', isSorted);
+
+            if (errors.size === 0 && !isSorted) {
+                errors.set(declaration, {
+                    messageId: 'shouldSwitch',
                     /** Swap imports */
                     fix: (fixer) => [
-                        fixer.replaceText(sortedImport.node, actualImport.toString()),
-                        fixer.replaceText(actualImport.node, sortedImport.toString()),
+                        fixer.replaceTextRange(declaration.getRange(true), previous.toString(true)),
+                        fixer.replaceTextRange(previous.getRange(true), declaration.toString(true)),
                     ],
                 });
-                break;
             }
-        }
-        context.debug('errors', ...errors.keys());
 
-        /** Finally, translate the errors to something the rules can actually use */
-        const importDeclarationErrors = new Map(Array.from(errors, ([{ node: declaration }, metadata]) => [declaration, { ...metadata, node: declaration }]));
-
-        return {
-            ImportDeclaration: (node) => {
-                const match = importDeclarationErrors.get(node);
-                if (match !== undefined) {
-                    context.report({ ...match });
-                }
-            },
-        };
-    },
+            for (const [declaration, error] of errors.entries()) {
+                context.report({
+                    loc: declaration.getLocation(false),
+                    ...error,
+                    data: {
+                        rawPath: declaration.rawPath,
+                        pathFromWorkingDirectory: declaration.pathFromWorkingDirectory,
+                        'aux.rawPath': previous.rawPath,
+                        'aux.pathFromWorkingDirectory': previous.pathFromWorkingDirectory,
+                    },
+                });
+            }
+        },
+    }),
 );
 
 export { type OptionsInput, rule };

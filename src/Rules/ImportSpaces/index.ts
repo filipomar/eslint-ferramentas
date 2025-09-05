@@ -1,7 +1,6 @@
 import type { ImportDeclaration } from 'estree';
-import type { AST } from 'eslint';
 
-import { isPathRelative, type ReadonlyRecord } from '../../utils';
+import { isPathRelative } from '../../utils';
 import { createRule, type ExtendedImportDeclaration } from '../Base';
 import { mapDebugRuleOptionInput } from '../Debug';
 import { mapGroups, type Options, type OptionsInput } from './Input';
@@ -42,14 +41,7 @@ class ImportGroupHelper {
     }
 }
 
-type WantedBreaks = 1 | 2;
-
-const errorMessages: ReadonlyRecord<WantedBreaks, string> = {
-    1: 'There should be no empty lines in a import group',
-    2: 'There should be one empty line between import groups',
-};
-
-const rule = createRule<OptionsInput, Options>(
+const rule = createRule<OptionsInput, Options, 'noEmpty' | 'oneEmpty'>(
     {
         name,
         type: 'layout',
@@ -63,6 +55,10 @@ const rule = createRule<OptionsInput, Options>(
             ].join('\n'),
         },
         schema,
+        messages: {
+            noEmpty: 'There should be no empty lines in a import group',
+            oneEmpty: 'There should be one empty line between import groups',
+        },
     },
     (input) => ({ ...mapGroups(input), ...mapDebugRuleOptionInput(input) }),
     (context) => {
@@ -71,48 +67,34 @@ const rule = createRule<OptionsInput, Options>(
 
         const helper = new ImportGroupHelper(groups);
 
-        const corrections = new Map<ImportDeclaration, Readonly<{ range: AST.Range; breaks: WantedBreaks }>>();
+        return {
+            'ImportDeclaration + ImportDeclaration': (node: ImportDeclaration) => {
+                const declaration = context.getImportDeclaration(node);
+                context.debug('declaration', declaration);
 
-        let previousDeclaration: ExtendedImportDeclaration | null = null;
-        for (const currenDeclaration of context.getImportDeclarations()) {
-            context.debug('declaration', currenDeclaration);
+                const previous = declaration.getPreviousSiblingWithSameTypeOrThrow();
+                context.debug('previous', previous);
 
-            if (previousDeclaration !== null) {
-                const needsSpace = helper.mapType(currenDeclaration) !== helper.mapType(previousDeclaration);
+                const needsSpace = helper.mapType(declaration) !== helper.mapType(previous);
+                context.debug('needsSpace', needsSpace);
 
                 const wantedLineBreaks = needsSpace ? 2 : 1;
                 context.debug('wantedLines', wantedLineBreaks);
 
-                const actualLineBreaks = currenDeclaration.location.start.line - previousDeclaration.location.end.line;
+                const actualLineBreaks = declaration.getLocation(true).start.line - previous.getLocation(false).end.line;
                 context.debug('actualLines', actualLineBreaks);
 
-                if (wantedLineBreaks !== actualLineBreaks) {
-                    corrections.set(currenDeclaration.node, {
-                        range: context.getRangeBetween(previousDeclaration, currenDeclaration),
-                        breaks: wantedLineBreaks,
-                    });
-                }
-            } else {
-                context.debug('no previous declaration');
-            }
-
-            previousDeclaration = currenDeclaration;
-        }
-
-        context.debug('corrections', ...corrections.keys());
-
-        return {
-            ImportDeclaration: (node) => {
-                const correction = corrections.get(node);
-
-                if (correction === undefined) {
+                if (wantedLineBreaks === actualLineBreaks) {
                     return;
                 }
 
+                const range = declaration.getRangeBetween(previous, true);
+                context.debug('range', range);
+
                 context.report({
-                    node,
-                    message: errorMessages[correction.breaks],
-                    fix: (fixer) => [fixer.replaceTextRange(correction.range, Array(correction.breaks).fill('\n').join(''))],
+                    loc: declaration.getLocation(false),
+                    messageId: needsSpace ? 'oneEmpty' : 'noEmpty',
+                    fix: (fixer) => [fixer.replaceTextRange(range, Array(wantedLineBreaks).fill('\n').join(''))],
                 });
             },
         };
